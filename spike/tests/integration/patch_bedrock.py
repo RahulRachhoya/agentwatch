@@ -72,8 +72,16 @@ def install(client):
         
         model_id = kwargs.get("modelId", "unknown")
         body = json.loads(response["body"].read())
-        response["body"] = type("BytesIO", (), {"read": lambda: json.dumps(body).encode()})()
-        
+
+        # Create a proper mock body that can be read again
+        class RereadableBody:
+            def __init__(self, data):
+                self.data = data
+            def read(self):
+                return self.data.encode()
+
+        response["body"] = RereadableBody(json.dumps(body))
+
         family = _detect_model_family(model_id)
         extractor = TOKEN_EXTRACTORS.get(family, lambda _: {"prompt_tokens": 0, "completion_tokens": 0})
         tokens = extractor(body)

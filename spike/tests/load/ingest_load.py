@@ -22,13 +22,14 @@ TOTAL_BATCHES = BATCHES_PER_SEC * DURATION_SEC
 
 def generate_span(i: int) -> dict:
     """Generate a fake span for load testing."""
+    now = time.time()
     return {
         "span_id": f"load-span-{i}",
         "run_id": f"load-run-{i // 100}",
         "name": "load.test",
         "span_type": "llm",
-        "start_time": time.time() - 1,
-        "end_time": time.time(),
+        "started_at": str(now - 1),
+        "ended_at": str(now),
         "provider": "openai",
         "model": "gpt-4o-mini",
         "prompt_tokens": 15,

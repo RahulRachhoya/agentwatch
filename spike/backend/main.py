@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Header
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -128,8 +128,9 @@ async def create_spans(batch: SpanBatch):
 
 # OTLP endpoint
 @app.post("/v1/traces", dependencies=[Depends(verify_api_key)])
-async def ingest_otlp(request_body: bytes = None):
-    spans = decode_otlp_request(request_body)
+async def ingest_otlp(request: Request):
+    body = await request.body()
+    spans = decode_otlp_request(body)
     db = await get_db()
     for span_dict in spans:
         await insert_span(db, span_dict)

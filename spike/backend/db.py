@@ -1,4 +1,5 @@
 import os
+import json
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
@@ -64,7 +65,7 @@ async def insert_run(db, run_dict):
         "session_id": run_dict.get("session_id"),
         "tags": str(run_dict.get("tags", [])),
         "started_at": run_dict["started_at"],
-        "metadata": str(run_dict.get("metadata", {}))
+        "metadata": json.dumps(run_dict.get("metadata", {}))
     })
     await db.commit()
 
@@ -97,7 +98,7 @@ async def insert_span(db, span_dict):
         "ended_at": span_dict.get("ended_at"),
         "status": span_dict.get("status", "running"),
         "error_message": span_dict.get("error_message"),
-        "metadata": str(span_dict.get("metadata", {}))
+        "metadata": json.dumps(span_dict.get("metadata", {}))
     })
     await db.commit()
 
