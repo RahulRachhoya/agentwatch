@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentwatch"
+version = "1.0.0"
+description = "Self-hosted LLM agent monitoring Python SDK"
+readme = "README.md"
+authors = [
+    { name = "Rahul Rachhoya" }
+]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "httpx>=0.20.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agentwatch*"]
