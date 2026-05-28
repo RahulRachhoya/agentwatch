@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
-  Activity, Database, Settings, Terminal, ShieldAlert, Cpu, BarChart3, 
-  Search, Play, AlertCircle, CheckCircle2, Clock, DollarSign, List,
+  Activity, Database, Settings, Terminal, BarChart3, 
+  Search, AlertCircle, List,
   ChevronRight, ChevronDown, Copy, RefreshCw, Layers
 } from "lucide-react";
 import { useWebSocket } from "./hooks/useWebSocket";
@@ -377,7 +377,7 @@ export default function App() {
   const chartData = useMemo(() => {
     // Collect last 10 runs to show chart
     const items = [...runs].reverse().slice(-15);
-    return items.map((r, idx) => ({
+    return items.map((r) => ({
       name: r.name.length > 15 ? `${r.name.slice(0, 15)}...` : r.name,
       latency: r.duration_ms || 0,
       cost: Number(r.total_cost_usd || 0) * 1000, // micro-dollars
@@ -656,7 +656,7 @@ export default function App() {
                     <h3 style={{ fontSize: "16px", fontWeight: 600 }}>Trace Waterfall Cascade</h3>
                   </div>
 
-                  <div style={{ flexGrow: 1, overflowY: "auto", maxH: "65vh" }}>
+                  <div style={{ flexGrow: 1, overflowY: "auto", maxHeight: "65vh" }}>
                     {renderSpanTree(selectedRunDetails.spans || [])}
                   </div>
                 </div>
@@ -894,7 +894,7 @@ export default function App() {
                     </code>
                     <button 
                       onClick={() => navigator.clipboard.writeText(`${backendUrl}/v1/traces`)}
-                      style={{ cursor: "pointer", opacity: 0.7, hover: { opacity: 1 } }}
+                      className="copy-button"
                     >
                       <Copy size={16} />
                     </button>

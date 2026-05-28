@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 export function useWebSocket(url: string, onMessage: (msg: any) => void) {
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     let active = true;
