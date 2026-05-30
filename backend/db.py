@@ -15,8 +15,13 @@ from sqlalchemy.sql import text
 logger = logging.getLogger("agentwatch.db")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./aw.db")
-if DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
+
+# Handle both postgres:// and postgresql:// prefixes (Render uses postgres://)
+if DATABASE_URL.startswith("postgres://") and not DATABASE_URL.startswith("postgres+asyncpg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 IS_POSTGRES = DATABASE_URL.startswith("postgresql")
 
 # SQLAlchemy setup
@@ -28,8 +33,10 @@ engine_args = {
 }
 
 if IS_POSTGRES:
-    engine_args["pool_size"] = 20
-    engine_args["max_overflow"] = 10
+    # Free-tier Render has limited resources; scale back pool size
+    engine_args["pool_size"] = 5
+    engine_args["max_overflow"] = 5
+    engine_args["pool_recycle"] = 3600  # Recycle connections hourly
     engine_args["pool_pre_ping"] = True
 
 engine = create_async_engine(
@@ -40,7 +47,8 @@ engine = create_async_engine(
 async_session = sessionmaker(
     engine,
     class_=AsyncSession,
-    expire_on_commit=False
+    expire_on_commit=False,
+    future=True  # Required for SQLAlchemy 2.0+ async compatibility
 )
 
 Base = declarative_base()
@@ -142,17 +150,30 @@ def _to_json(val: Any) -> Any:
 
 # DB Initialization
 async def init_db():
-    async with engine.begin() as conn:
-        # Create all tables natively
-        await conn.run_sync(Base.metadata.create_all)
-        
-        # Seed model pricing on startup
-        await seed_pricing(conn)
+    try:
+        async with engine.begin() as conn:
+            # Create all tables natively
+            await conn.run_sync(Base.metadata.create_all)
+
+            # Seed model pricing on startup
+            await seed_pricing(conn)
+        logger.info("Database initialization completed successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to initialize database: {e}") from e
 
 async def seed_pricing(conn):
-    # Check if we have pricing records, if not seed them
-    # Extended v2 model list (including DeepSeek, Kimi, Bedrock models)
-    pricing_data = [
+    """Seed initial model pricing data; skips if already populated."""
+    try:
+        # Check if pricing is already seeded
+        result = await conn.execute(text("SELECT COUNT(*) FROM model_pricing"))
+        count = result.scalar()
+        if count > 0:
+            logger.info(f"Model pricing already seeded ({count} records)")
+            return
+
+        # Extended v2 model list (including DeepSeek, Kimi, Bedrock models)
+        pricing_data = [
         # OpenAI
         {"model": "gpt-4o", "provider": "openai", "input_cost_per_1k_tokens": 0.005, "output_cost_per_1k_tokens": 0.015},
         {"model": "gpt-4o-mini", "provider": "openai", "input_cost_per_1k_tokens": 0.00015, "output_cost_per_1k_tokens": 0.0006},
@@ -207,6 +228,11 @@ async def seed_pricing(conn):
                     updated_at = datetime('now')
             """)
         await conn.execute(query, item)
+
+        logger.info(f"Successfully seeded {len(pricing_data)} pricing records")
+    except Exception as e:
+        logger.error(f"Pricing seed operation failed: {e}", exc_info=True)
+        raise
 
 # Session generator
 async def get_db() -> AsyncSession:

@@ -1,4 +1,5 @@
 from datetime import datetime
+import asyncio
 import json
 import logging
 import os
@@ -11,9 +12,10 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.sql import text
 
 from db import (
-    init_db, get_db, insert_run, insert_spans_batch, get_runs, get_run_details, update_run_status
+    init_db, get_db, insert_run, insert_spans_batch, get_runs, get_run_details, update_run_status, async_session
 )
 from otlp import decode_otlp_request
 from auth import verify_api_key
@@ -163,18 +165,39 @@ class SpanBatch(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing AgentWatch Database...")
-    await init_db()
-    logger.info("Database initialized successfully.")
+    max_retries = 3
+    retry_delay = 2
+
+    for attempt in range(max_retries):
+        try:
+            await init_db()
+            logger.info("Database initialized successfully.")
+            return
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Database init failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.error(f"Database initialization failed after {max_retries} attempts: {e}")
+                raise
 
 # Health Check
-@app.get("/health")
+@app.get("/health", status_code=200)
 async def health():
-    return {"status": "ok", "version": "1.0.0", "time": datetime.now().isoformat()}
+    """Health check with database connectivity verification."""
+    try:
+        # Verify database connectivity
+        async with async_session() as session:
+            await session.execute(text("SELECT 1"))
+        return {"status": "ok", "version": "1.0.0", "time": datetime.now().isoformat()}
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=503, detail="Service unavailable")
 
 # Runs Endpoints
 @app.post("/v1/runs", dependencies=[Depends(verify_api_key)])
 async def create_run(run: RunCreate, db = Depends(get_db)):
-    run_dict = run.dict()
+    run_dict = run.model_dump()
     await insert_run(db, run_dict)
     
     # Broadcast event
@@ -213,7 +236,7 @@ async def get_run(run_id: str, db = Depends(get_db)):
 @app.post("/v1/spans/batch", dependencies=[Depends(verify_api_key)])
 @limiter.limit("1000/minute")
 async def create_spans(request: Request, batch: SpanBatch, db = Depends(get_db)):
-    span_dicts = [span.dict() for span in batch.spans]
+    span_dicts = [span.model_dump() for span in batch.spans]
     await insert_spans_batch(db, span_dicts)
 
     # Broadcast events for each span
