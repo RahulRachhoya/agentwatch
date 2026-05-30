@@ -206,28 +206,28 @@ async def seed_pricing(conn):
         {"model": "mistral.mistral-large-2402-v1:0", "provider": "bedrock", "input_cost_per_1k_tokens": 0.008, "output_cost_per_1k_tokens": 0.024}
     ]
     
-    # We construct raw SQL insert or update for portability
-    for item in pricing_data:
-        # ON CONFLICT support
-        if IS_POSTGRES:
-            query = text("""
-                INSERT INTO model_pricing (model, provider, input_cost_per_1k_tokens, output_cost_per_1k_tokens, updated_at)
-                VALUES (:model, :provider, :input_cost_per_1k_tokens, :output_cost_per_1k_tokens, NOW())
-                ON CONFLICT (model) DO UPDATE SET
-                    input_cost_per_1k_tokens = EXCLUDED.input_cost_per_1k_tokens,
-                    output_cost_per_1k_tokens = EXCLUDED.output_cost_per_1k_tokens,
-                    updated_at = NOW()
-            """)
-        else:
-            query = text("""
-                INSERT INTO model_pricing (model, provider, input_cost_per_1k_tokens, output_cost_per_1k_tokens, updated_at)
-                VALUES (:model, :provider, :input_cost_per_1k_tokens, :output_cost_per_1k_tokens, datetime('now'))
-                ON CONFLICT (model) DO UPDATE SET
-                    input_cost_per_1k_tokens = EXCLUDED.input_cost_per_1k_tokens,
-                    output_cost_per_1k_tokens = EXCLUDED.output_cost_per_1k_tokens,
-                    updated_at = datetime('now')
-            """)
-        await conn.execute(query, item)
+        # We construct raw SQL insert or update for portability
+        for item in pricing_data:
+            # ON CONFLICT support
+            if IS_POSTGRES:
+                query = text("""
+                    INSERT INTO model_pricing (model, provider, input_cost_per_1k_tokens, output_cost_per_1k_tokens, updated_at)
+                    VALUES (:model, :provider, :input_cost_per_1k_tokens, :output_cost_per_1k_tokens, NOW())
+                    ON CONFLICT (model) DO UPDATE SET
+                        input_cost_per_1k_tokens = EXCLUDED.input_cost_per_1k_tokens,
+                        output_cost_per_1k_tokens = EXCLUDED.output_cost_per_1k_tokens,
+                        updated_at = NOW()
+                """)
+            else:
+                query = text("""
+                    INSERT INTO model_pricing (model, provider, input_cost_per_1k_tokens, output_cost_per_1k_tokens, updated_at)
+                    VALUES (:model, :provider, :input_cost_per_1k_tokens, :output_cost_per_1k_tokens, datetime('now'))
+                    ON CONFLICT (model) DO UPDATE SET
+                        input_cost_per_1k_tokens = EXCLUDED.input_cost_per_1k_tokens,
+                        output_cost_per_1k_tokens = EXCLUDED.output_cost_per_1k_tokens,
+                        updated_at = datetime('now')
+                """)
+            await conn.execute(query, item)
 
         logger.info(f"Successfully seeded {len(pricing_data)} pricing records")
     except Exception as e:

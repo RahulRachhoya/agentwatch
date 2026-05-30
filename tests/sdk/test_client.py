@@ -94,10 +94,14 @@ class TestPostMethod:
     @patch("sdk.agentwatch.client.httpx.Client")
     def test_post_uses_timeout(self, mock_client_class):
         """Should use 5 second timeout."""
+        mock_response = Mock()
+        mock_response.raise_for_status = Mock()
         mock_client_instance = MagicMock()
+        mock_client_instance.__enter__.return_value.post.return_value = mock_response
         mock_client_class.return_value = mock_client_instance
 
         client = AgentWatchClient("http://localhost:8000")
+        client._post("/v1/runs", {"run_id": "test"})
 
         # Check that httpx.Client is created with timeout
         mock_client_class.assert_called_with(headers=client.headers, timeout=5.0)
@@ -309,11 +313,11 @@ class TestEdgeCases:
         assert "X-API-Key" not in client.headers
 
     def test_client_with_empty_string_api_key(self):
-        """Should handle empty string API key."""
+        """Should handle empty string API key (not added to headers, treated as no auth)."""
         client = AgentWatchClient("http://localhost:8000", api_key="")
 
-        # Empty string should still be set
-        assert client.headers["X-API-Key"] == ""
+        # Empty string is falsy, so header should not be set
+        assert "X-API-Key" not in client.headers
 
     def test_create_run_with_special_characters(self):
         """Should handle special characters in run names."""

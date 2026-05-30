@@ -48,3 +48,4 @@ frontend/dist/
 # Render
 .render/
 .codegraph/
+.gstack/

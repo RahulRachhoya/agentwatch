@@ -3,9 +3,9 @@ import { Activity, Settings, BarChart3, List } from "lucide-react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { RunsListView, type Run } from "./components/RunsListView";
 import { RunDetailsView } from "./components/RunDetailsView";
-import { MetricsView } from "./components/MetricsView";
 import { SettingsView } from "./components/SettingsView";
 import type { Span } from "./components/SpanTree";
+import { MetricsView } from "./components/MetricsView";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"runs" | "metrics" | "settings">("runs");

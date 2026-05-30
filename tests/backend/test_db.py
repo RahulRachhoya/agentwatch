@@ -223,7 +223,8 @@ class TestInsertSpansBatch:
         # Seed model pricing
         from backend.db import seed_pricing
         async with test_db.begin():
-            await seed_pricing(test_db.connection())
+            conn = await test_db.connection()
+            await seed_pricing(conn)
 
         run_dict = {
             "run_id": "run_cost_001",
@@ -310,7 +311,8 @@ class TestUpdateRunAggregates:
         # Seed pricing
         from backend.db import seed_pricing
         async with test_db.begin():
-            await seed_pricing(test_db.connection())
+            conn = await test_db.connection()
+            await seed_pricing(conn)
 
         run_dict = {
             "run_id": "run_agg_001",
