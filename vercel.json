@@ -2,7 +2,7 @@
   "version": 2,
   "buildCommand": "cd frontend && pnpm run build",
   "outputDirectory": "frontend/dist",
-  "installCommand": "cd frontend && pnpm install --frozen-lockfile",
+  "installCommand": "cd frontend && pnpm install",
   "rewrites": [
     {
       "source": "/(.*)",
