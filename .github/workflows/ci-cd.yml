@@ -154,7 +154,7 @@ jobs:
 
     steps:
       - name: ⏳ Wait for Render auto-deploy to spin up
-        run: sleep 60
+        run: sleep 120
 
       - name: 🏥 Health-check deployed backend
         run: |
@@ -203,11 +203,9 @@ jobs:
       - name: 📦 Install frontend dependencies
         run: cd frontend && pnpm install --frozen-lockfile
 
-      - name: 🔗 Link Vercel project
-        run: npx vercel@latest link --yes --project agentwatch --token=${{ secrets.VERCEL_TOKEN }} --cwd frontend
-
       - name: 🚀 Deploy to Vercel (Production)
         run: |
           npx vercel@latest deploy --prod --yes \
             --token=${{ secrets.VERCEL_TOKEN }} \
-            --cwd .
+            --scope rahul-rachhoyas-projects-025c4e43 \
+            --project agentwatch
