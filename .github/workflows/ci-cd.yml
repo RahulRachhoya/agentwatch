@@ -178,7 +178,7 @@ jobs:
 
   # ─────────────────────────────────────────────
   # JOB 5: Deploy Frontend to Vercel
-  # Deploy from repo root — root vercel.json has rootDirectory: "frontend"
+  # Deploy from frontend/ directory using project/scope flags
   # (only on push to main)
   # ─────────────────────────────────────────────
   deploy-frontend:
@@ -201,9 +201,11 @@ jobs:
         run: npm install -g pnpm
 
       - name: 📦 Install frontend dependencies
-        run: cd frontend && pnpm install --frozen-lockfile
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
 
       - name: 🚀 Deploy to Vercel (Production)
+        working-directory: frontend
         run: |
           npx vercel@latest deploy --prod --yes \
             --token=${{ secrets.VERCEL_TOKEN }} \
