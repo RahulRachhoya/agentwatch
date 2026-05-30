@@ -2,9 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "name": "agentwatch",
-  "buildCommand": "npm run build",
+  "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
-  "installCommand": "npm install --no-optional --no-audit --no-fund",
+  "installCommand": "pnpm install --frozen-lockfile",
   "framework": "vite",
   "rewrites": [
     {
