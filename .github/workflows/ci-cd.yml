@@ -178,6 +178,7 @@ jobs:
 
   # ─────────────────────────────────────────────
   # JOB 5: Deploy Frontend to Vercel
+  # Deploy from repo root — root vercel.json has rootDirectory: "frontend"
   # (only on push to main)
   # ─────────────────────────────────────────────
   deploy-frontend:
@@ -186,10 +187,6 @@ jobs:
     needs: [docker-build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
-
-    defaults:
-      run:
-        working-directory: frontend
 
     steps:
       - name: 📥 Checkout code
@@ -203,13 +200,14 @@ jobs:
       - name: 📦 Install pnpm
         run: npm install -g pnpm
 
-      - name: 📦 Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: 📦 Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
 
       - name: 🔗 Link Vercel project
-        run: npx vercel@latest link --yes --project agentwatch --token=${{ secrets.VERCEL_TOKEN }}
+        run: npx vercel@latest link --yes --project agentwatch --token=${{ secrets.VERCEL_TOKEN }} --cwd frontend
 
       - name: 🚀 Deploy to Vercel (Production)
         run: |
           npx vercel@latest deploy --prod --yes \
-            --token=${{ secrets.VERCEL_TOKEN }}
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --cwd .
