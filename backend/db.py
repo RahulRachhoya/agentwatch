@@ -279,173 +279,175 @@ async def insert_run(db: AsyncSession, run_dict: Dict[str, Any]):
     await db.commit()
 
 async def insert_spans_batch(db: AsyncSession, span_dicts: List[Dict[str, Any]]):
-    """Insert a batch of spans in a single transaction with conflict resolution."""
+    """Insert a batch of spans using true bulk INSERT with multiple VALUES for optimal performance."""
     if not span_dicts:
         return
-        
-    # We resolve pricing to compute cost_usd for each span on the server side
-    # Fetch pricing mapping
+
+    # Fetch pricing mapping once
     pricing_result = await db.execute(text("SELECT model, input_cost_per_1k_tokens, output_cost_per_1k_tokens FROM model_pricing"))
     pricing = {row[0]: (float(row[1]), float(row[2])) for row in pricing_result.fetchall()}
 
-    params = []
-    for span_dict in span_dicts:
+    # Build VALUES clauses for true bulk insert
+    values_clauses = []
+    params = {}
+
+    for idx, span_dict in enumerate(span_dicts):
         started_at = parse_dt(span_dict["started_at"])
         ended_at = parse_dt(span_dict.get("ended_at"))
-        
+
         duration_ms = None
         if started_at and ended_at:
             duration_ms = int((ended_at - started_at).total_seconds() * 1000)
         elif span_dict.get("duration_ms"):
             duration_ms = int(span_dict["duration_ms"])
-            
+
         # Calculate cost
         cost_usd = 0.0
         model = span_dict.get("model")
         prompt_tokens = span_dict.get("prompt_tokens", 0) or 0
         completion_tokens = span_dict.get("completion_tokens", 0) or 0
         total_tokens = prompt_tokens + completion_tokens
-        
+
         if model and model in pricing:
             in_cost, out_cost = pricing[model]
             cost_usd = (prompt_tokens * in_cost / 1000.0) + (completion_tokens * out_cost / 1000.0)
-        
-        params.append({
-            "span_id": span_dict["span_id"],
-            "run_id": span_dict["run_id"],
-            "parent_span_id": span_dict.get("parent_span_id"),
-            "span_type": span_dict["span_type"],
-            "name": span_dict["name"],
-            "model": model,
-            "provider": span_dict.get("provider"),
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-            "cost_usd": cost_usd,
-            "input_preview": span_dict.get("input_preview"),
-            "output_preview": span_dict.get("output_preview"),
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "duration_ms": duration_ms,
-            "status": span_dict.get("status", "running"),
-            "error_type": span_dict.get("error_type"),
-            "error_message": span_dict.get("error_message"),
-            "tool_name": span_dict.get("tool_name"),
-            "tool_input": _to_json(span_dict.get("tool_input")),
-            "tool_output": _to_json(span_dict.get("tool_output")),
-            "metadata": _to_json(span_dict.get("metadata", {})),
-            "created_at": datetime.now(timezone.utc)
+
+        # Generate unique parameter names for this row
+        prefix = f"s{idx}_"
+        values_clauses.append(f"""(
+            :{prefix}span_id, :{prefix}run_id, :{prefix}parent_span_id, :{prefix}span_type, :{prefix}name,
+            :{prefix}model, :{prefix}provider, :{prefix}prompt_tokens, :{prefix}completion_tokens, :{prefix}total_tokens, :{prefix}cost_usd,
+            :{prefix}input_preview, :{prefix}output_preview, :{prefix}started_at, :{prefix}ended_at, :{prefix}duration_ms,
+            :{prefix}status, :{prefix}error_type, :{prefix}error_message, :{prefix}tool_name, :{prefix}tool_input, :{prefix}tool_output,
+            :{prefix}metadata, :{prefix}created_at
+        )""")
+
+        # Add parameters with unique keys
+        params.update({
+            f"{prefix}span_id": span_dict["span_id"],
+            f"{prefix}run_id": span_dict["run_id"],
+            f"{prefix}parent_span_id": span_dict.get("parent_span_id"),
+            f"{prefix}span_type": span_dict["span_type"],
+            f"{prefix}name": span_dict["name"],
+            f"{prefix}model": model,
+            f"{prefix}provider": span_dict.get("provider"),
+            f"{prefix}prompt_tokens": prompt_tokens,
+            f"{prefix}completion_tokens": completion_tokens,
+            f"{prefix}total_tokens": total_tokens,
+            f"{prefix}cost_usd": cost_usd,
+            f"{prefix}input_preview": span_dict.get("input_preview"),
+            f"{prefix}output_preview": span_dict.get("output_preview"),
+            f"{prefix}started_at": started_at,
+            f"{prefix}ended_at": ended_at,
+            f"{prefix}duration_ms": duration_ms,
+            f"{prefix}status": span_dict.get("status", "running"),
+            f"{prefix}error_type": span_dict.get("error_type"),
+            f"{prefix}error_message": span_dict.get("error_message"),
+            f"{prefix}tool_name": span_dict.get("tool_name"),
+            f"{prefix}tool_input": _to_json(span_dict.get("tool_input")),
+            f"{prefix}tool_output": _to_json(span_dict.get("tool_output")),
+            f"{prefix}metadata": _to_json(span_dict.get("metadata", {})),
+            f"{prefix}created_at": datetime.now(timezone.utc)
         })
 
-    query = text("""
+    # Build single INSERT with all VALUES
+    query = text(f"""
         INSERT INTO spans (
-            span_id, run_id, parent_span_id, span_type, name, 
+            span_id, run_id, parent_span_id, span_type, name,
             model, provider, prompt_tokens, completion_tokens, total_tokens, cost_usd,
             input_preview, output_preview, started_at, ended_at, duration_ms,
             status, error_type, error_message, tool_name, tool_input, tool_output,
             metadata, created_at
-        ) VALUES (
-            :span_id, :run_id, :parent_span_id, :span_type, :name,
-            :model, :provider, :prompt_tokens, :completion_tokens, :total_tokens, :cost_usd,
-            :input_preview, :output_preview, :started_at, :ended_at, :duration_ms,
-            :status, :error_type, :error_message, :tool_name, :tool_input, :tool_output,
-            :metadata, :created_at
-        )
+        ) VALUES {', '.join(values_clauses)}
         ON CONFLICT (span_id) DO UPDATE SET
-            ended_at = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.ended_at 
-                ELSE EXCLUDED.ended_at 
+            ended_at = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.ended_at
+                ELSE EXCLUDED.ended_at
             END,
-            duration_ms = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.duration_ms 
-                ELSE COALESCE(EXCLUDED.duration_ms, spans.duration_ms) 
+            duration_ms = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.duration_ms
+                ELSE COALESCE(EXCLUDED.duration_ms, spans.duration_ms)
             END,
-            status = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.status 
-                ELSE EXCLUDED.status 
+            status = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.status
+                ELSE EXCLUDED.status
             END,
-            error_type = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.error_type 
-                ELSE EXCLUDED.error_type 
+            error_type = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.error_type
+                ELSE EXCLUDED.error_type
             END,
-            error_message = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.error_message 
-                ELSE EXCLUDED.error_message 
+            error_message = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.error_message
+                ELSE EXCLUDED.error_message
             END,
-            tool_output = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.tool_output 
-                ELSE EXCLUDED.tool_output 
+            tool_output = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.tool_output
+                ELSE EXCLUDED.tool_output
             END,
-            prompt_tokens = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.prompt_tokens 
-                ELSE EXCLUDED.prompt_tokens 
+            prompt_tokens = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.prompt_tokens
+                ELSE EXCLUDED.prompt_tokens
             END,
-            completion_tokens = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.completion_tokens 
-                ELSE EXCLUDED.completion_tokens 
+            completion_tokens = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.completion_tokens
+                ELSE EXCLUDED.completion_tokens
             END,
-            total_tokens = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.total_tokens 
-                ELSE EXCLUDED.total_tokens 
+            total_tokens = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.total_tokens
+                ELSE EXCLUDED.total_tokens
             END,
-            cost_usd = CASE 
-                WHEN spans.status IN ('success', 'error') THEN spans.cost_usd 
-                ELSE EXCLUDED.cost_usd 
+            cost_usd = CASE
+                WHEN spans.status IN ('success', 'error') THEN spans.cost_usd
+                ELSE EXCLUDED.cost_usd
             END,
             metadata = EXCLUDED.metadata
     """)
-    
-    # Execute batch inserts
+
+    # Execute single bulk insert
     await db.execute(query, params)
     await db.commit()
-    
+
     # Trigger denormalized aggregations update on affected runs
     run_ids = list(set(s["run_id"] for s in span_dicts))
     await update_run_aggregates(db, run_ids)
 
 async def update_run_aggregates(db: AsyncSession, run_ids: List[str]):
-    """Denormalize metrics from spans into the runs table for fast dashboard queries."""
+    """Denormalize metrics from spans into the runs table using a single CTE-based UPDATE."""
     if not run_ids:
         return
-        
-    for run_id in run_ids:
-        # Aggregation query
-        agg_result = await db.execute(text("""
-            SELECT 
+
+    # Build parameterized list for IN clause
+    placeholders = ", ".join([f":run_id_{i}" for i in range(len(run_ids))])
+    params = {f"run_id_{i}": run_id for i, run_id in enumerate(run_ids)}
+
+    # Use CTE to aggregate all runs in one query, then UPDATE with JOIN
+    query = text(f"""
+        WITH agg AS (
+            SELECT
+                run_id,
                 COUNT(id) as span_count,
-                SUM(prompt_tokens) as prompt_tokens,
-                SUM(completion_tokens) as completion_tokens,
-                SUM(total_tokens) as total_tokens,
-                SUM(cost_usd) as total_cost_usd,
+                COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                COALESCE(SUM(total_tokens), 0) as total_tokens,
+                COALESCE(SUM(cost_usd), 0.0) as total_cost_usd,
                 COUNT(CASE WHEN span_type = 'tool' THEN 1 END) as tool_call_count
             FROM spans
-            WHERE run_id = :run_id
-        """), {"run_id": run_id})
-        
-        row = agg_result.fetchone()
-        if not row or row[0] == 0:
-            continue
-            
-        span_count, prompt_t, comp_t, total_t, cost, tool_count = row
-        
-        await db.execute(text("""
-            UPDATE runs SET
-                span_count = :span_count,
-                prompt_tokens = :prompt_tokens,
-                completion_tokens = :completion_tokens,
-                total_tokens = :total_tokens,
-                total_cost_usd = :total_cost_usd,
-                tool_call_count = :tool_call_count
-            WHERE run_id = :run_id
-        """), {
-            "run_id": run_id,
-            "span_count": span_count,
-            "prompt_tokens": prompt_t or 0,
-            "completion_tokens": comp_t or 0,
-            "total_tokens": total_t or 0,
-            "total_cost_usd": cost or 0.0,
-            "tool_call_count": tool_count or 0
-        })
+            WHERE run_id IN ({placeholders})
+            GROUP BY run_id
+        )
+        UPDATE runs
+        SET
+            span_count = agg.span_count,
+            prompt_tokens = agg.prompt_tokens,
+            completion_tokens = agg.completion_tokens,
+            total_tokens = agg.total_tokens,
+            total_cost_usd = agg.total_cost_usd,
+            tool_call_count = agg.tool_call_count
+        FROM agg
+        WHERE runs.run_id = agg.run_id
+    """)
+
+    await db.execute(query, params)
     await db.commit()
 
 async def get_runs(db: AsyncSession, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:

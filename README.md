@@ -27,6 +27,39 @@ Dashboard: http://localhost:3000
 
 ---
 
+## Security Configuration
+
+### API Key Protection
+
+Set `AGENTWATCH_API_KEY` environment variable to enable authentication:
+
+```bash
+export AGENTWATCH_API_KEY="your-secret-key-here"
+```
+
+When set, all HTTP endpoints and WebSocket connections require the `X-API-Key` header.
+
+### CORS Configuration
+
+**Development (default):** Allows all origins (`*`)
+
+**Production:** Set `ALLOWED_ORIGINS` to restrict origins:
+
+```bash
+export ALLOWED_ORIGINS="https://yourdomain.com,https://app.yourdomain.com"
+```
+
+Multiple origins are comma-separated. Wildcard (`*`) triggers a warning in logs.
+
+### Rate Limiting
+
+Default rate limits (per IP):
+- `POST /v1/spans/batch`: 1000 requests/minute
+
+Enforced via `slowapi`. Exceeding limits returns HTTP 429.
+
+---
+
 ## Features
 
 - 💵 Cost per run (OpenAI/Anthropic/Bedrock)
