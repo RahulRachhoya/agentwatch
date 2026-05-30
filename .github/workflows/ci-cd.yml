@@ -1,0 +1,233 @@
+name: AgentWatch CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  # Render backend service ID — fill this in after creating the service on Render
+  RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1: Lint & Test Backend
+  # ─────────────────────────────────────────────
+  backend-ci:
+    name: 🐍 Backend — Lint & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: agentwatch_test
+          POSTGRES_USER: agentwatch
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://agentwatch:testpassword@localhost:5432/agentwatch_test
+      AGENTWATCH_API_KEY: ""
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: 🔍 Lint with ruff (if available)
+        run: |
+          pip install ruff --quiet
+          ruff check . --ignore E501 || true
+
+      - name: ✅ Run backend health-check smoke test
+        run: |
+          python -c "
+          import asyncio, sys
+          sys.path.insert(0, '.')
+          from main import app
+          print('✅ Backend imports OK')
+          "
+
+      - name: 🧪 Run Integration Tests
+        working-directory: .
+        run: python tests/test_suite.py
+
+  # ─────────────────────────────────────────────
+  # JOB 2: Build & Test Frontend
+  # ─────────────────────────────────────────────
+  frontend-ci:
+    name: ⚡ Frontend — Build & Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📦 Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: 🔍 Lint
+        run: npm run lint || true
+
+      - name: 🏗️ Build production bundle
+        run: npm run build
+        env:
+          # The Render backend URL — set as a secret or replace with your actual URL
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'https://agentwatch-backend.onrender.com' }}
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL || 'wss://agentwatch-backend.onrender.com/ws' }}
+
+      - name: 📤 Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # JOB 3: Docker Build Validation
+  # ─────────────────────────────────────────────
+  docker-build:
+    name: 🐳 Docker Build Validation
+    runs-on: ubuntu-latest
+    needs: [backend-ci, frontend-ci]
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔨 Build backend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: agentwatch-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 🔨 Build frontend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          tags: agentwatch-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─────────────────────────────────────────────
+  # JOB 4: Deploy Backend to Render
+  # (only on push to main)
+  # ─────────────────────────────────────────────
+  deploy-backend:
+    name: 🚀 Deploy Backend → Render
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    steps:
+      - name: 🚀 Trigger Render Deploy Hook
+        run: |
+          curl -s -X POST \
+            "https://api.render.com/deploy/srv-${{ secrets.RENDER_SERVICE_ID }}?key=${{ secrets.RENDER_DEPLOY_KEY }}" \
+            | jq .
+
+      - name: ⏳ Wait for Render deployment
+        run: |
+          echo "Waiting 60s for Render to spin up..."
+          sleep 60
+
+      - name: 🏥 Health-check deployed backend
+        run: |
+          MAX_RETRIES=10
+          RETRY_DELAY=15
+          BACKEND_URL="${{ secrets.VITE_API_BASE_URL || 'https://agentwatch-backend.onrender.com' }}"
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES — checking $BACKEND_URL/health"
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Backend is healthy!"
+              exit 0
+            fi
+            echo "⏳ Got $HTTP_CODE — retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+          echo "❌ Backend health check failed after $MAX_RETRIES attempts"
+          exit 1
+
+  # ─────────────────────────────────────────────
+  # JOB 5: Deploy Frontend to Vercel
+  # (only on push to main)
+  # ─────────────────────────────────────────────
+  deploy-frontend:
+    name: 🌐 Deploy Frontend → Vercel
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 📦 Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: 📦 Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: 🚀 Deploy to Vercel (Production)
+        run: |
+          vercel deploy --prod --yes \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --env VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }} \
+            --env VITE_WS_URL=${{ secrets.VITE_WS_URL }}

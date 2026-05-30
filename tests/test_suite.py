@@ -172,22 +172,31 @@ class TestAgentWatchIntegration(unittest.TestCase):
         
         # Create a run
         client.create_run(run_id=run_id, name="Test SDK Run", session_id="session-1", tags=["test", "integration"])
-        time.sleep(0.2)  # Wait for thread pool to finish posting
         
-        # Verify run in DB
-        res = httpx.get("http://127.0.0.1:8123/v1/runs")
-        self.assertEqual(res.status_code, 200)
-        runs = res.json()["data"]
+        # Verify run in DB (with polling to prevent race conditions)
+        runs = []
+        for _ in range(20):
+            res = httpx.get("http://127.0.0.1:8123/v1/runs")
+            self.assertEqual(res.status_code, 200)
+            runs = res.json()["data"]
+            if any(r["run_id"] == run_id for r in runs):
+                break
+            time.sleep(0.1)
         self.assertTrue(any(r["run_id"] == run_id for r in runs))
 
         # Update run status
         client.update_run(run_id=run_id, status="success")
-        time.sleep(0.2)
         
-        # Check status update
-        res = httpx.get(f"http://127.0.0.1:8123/v1/runs/{run_id}")
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()["data"]["status"], "success")
+        # Check status update (with polling to prevent race conditions)
+        status = None
+        for _ in range(20):
+            res = httpx.get(f"http://127.0.0.1:8123/v1/runs/{run_id}")
+            self.assertEqual(res.status_code, 200)
+            status = res.json()["data"]["status"]
+            if status == "success":
+                break
+            time.sleep(0.1)
+        self.assertEqual(status, "success")
 
     def test_03_patch_openai_sync_and_stream(self):
         """Verify OpenAI patches aggregate usage and push spans successfully."""

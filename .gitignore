@@ -34,3 +34,16 @@ aw.db
 
 # Temp
 spike/data/
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# Frontend build
+frontend/dist/
+
+# Vercel
+.vercel/
+
+# Render
+.render/

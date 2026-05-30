@@ -1,0 +1,13 @@
+{
+  "total_batches": 100,
+  "successful_batches": 100,
+  "total_spans": 5000,
+  "successful_spans": 5000,
+  "total_time_sec": 11.75,
+  "p50_ms": 63.71,
+  "p95_ms": 102.34,
+  "p99_ms": 725.74,
+  "success_rate": 1.0,
+  "throughput_spans_per_sec": 425.35,
+  "throughput_batches_per_sec": 8.51
+}
