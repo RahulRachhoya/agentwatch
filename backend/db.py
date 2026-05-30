@@ -15,6 +15,8 @@ from sqlalchemy.sql import text
 logger = logging.getLogger("agentwatch.db")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./aw.db")
+if DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 IS_POSTGRES = DATABASE_URL.startswith("postgresql")
 
 # SQLAlchemy setup
