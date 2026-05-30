@@ -100,6 +100,12 @@ jobs:
       - name: 📦 Install pnpm
         run: npm install -g pnpm
 
+      - name: 📦 Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+
       - name: 📦 Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -178,7 +184,7 @@ jobs:
 
   # ─────────────────────────────────────────────
   # JOB 5: Deploy Frontend to Vercel
-  # Deploy from frontend/ directory using project/scope flags
+  # Deploys from repo root — root vercel.json handles frontend/ path
   # (only on push to main)
   # ─────────────────────────────────────────────
   deploy-frontend:
@@ -201,11 +207,9 @@ jobs:
         run: npm install -g pnpm
 
       - name: 📦 Install frontend dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        run: cd frontend && pnpm install --frozen-lockfile
 
       - name: 🚀 Deploy to Vercel (Production)
-        working-directory: frontend
         run: |
           npx vercel@latest deploy --prod --yes \
             --token=${{ secrets.VERCEL_TOKEN }} \
