@@ -49,3 +49,4 @@ frontend/dist/
 .render/
 .codegraph/
 .gstack/
+.vercel
