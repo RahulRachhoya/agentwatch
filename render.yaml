@@ -4,7 +4,6 @@ services:
     name: agentwatch-backend
     runtime: docker
     dockerfilePath: Dockerfile
-    dockerContext: ./backend
     region: oregon
     plan: free
     branch: main
