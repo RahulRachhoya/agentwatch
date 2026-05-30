@@ -4,7 +4,7 @@
   "name": "agentwatch",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "installCommand": "npm ci --legacy-peer-deps",
+  "installCommand": "npm ci --include=dev --legacy-peer-deps",
   "framework": "vite",
   "rewrites": [
     {
